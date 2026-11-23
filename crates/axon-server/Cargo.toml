@@ -1,0 +1,39 @@
+[package]
+name = "axon-server"
+description = "HTTP, SSE and MCP front end for axon, with a PostgreSQL event store."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "axon"
+path = "src/main.rs"
+
+[dependencies]
+axon-core = { path = "../axon-core" }
+anyhow = "1"
+async-trait.workspace = true
+axum = "0.8"
+chrono.workspace = true
+clap = { version = "4", features = ["derive", "env"] }
+hex.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sha2.workspace = true
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "postgres", "uuid", "chrono", "json", "migrate", "macros"] }
+thiserror.workspace = true
+tokio.workspace = true
+tokio-stream.workspace = true
+toml = "0.8"
+tower-http = { version = "0.6", features = ["trace"] }
+tracing.workspace = true
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+uuid.workspace = true
+
+[dev-dependencies]
+http-body-util = "0.1"
+tower = { version = "0.5", features = ["util"] }
+
+[lints]
+workspace = true

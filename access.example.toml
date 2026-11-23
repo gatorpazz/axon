@@ -1,0 +1,24 @@
+# Access configuration for axon. Pass with --access-file or AXON_ACCESS_FILE.
+#
+# Tokens are never stored, only their SHA-256. To add a principal:
+#   printf %s "$TOKEN" | shasum -a 256
+
+# Relationship tuples: object#relation@subject
+tuples = [
+    "group:researchers#member@user:alice",
+    # Researchers may invoke every tool.
+    "tool:*#invoker@group:researchers#member",
+    # CI may only run the statistics tools.
+    "tool:stats.describe#invoker@service:ci",
+    "tool:stats.welch_t_test#invoker@service:ci",
+]
+
+[[principals]]
+id = "user:alice"
+# sha256("dev-alice-token") -- replace before deploying anywhere.
+token_sha256 = "295db0545046da79fb81ee057c7054213df2e3dc2a9a83e5e13e65398596d3e2"
+
+[[principals]]
+id = "service:ci"
+# sha256("dev-ci-token")
+token_sha256 = "9ba3448769ddce825c980562db1363c6f63087ce75897792168622f530ee2a53"

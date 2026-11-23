@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>axon console</title>
+<style>
+  :root {
+    color-scheme: light dark;
+    --bg: #f6f5f1; --panel: #ffffff; --ink: #1c1d21; --muted: #6a6d76; --line: #dcdad3;
+    --accent: #1f5f8b; --ok: #1d7a4c; --bad: #b3322b; --warn: #94640a;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #14161a; --panel: #1c1f25; --ink: #e7e6e1; --muted: #9a9da6; --line: #30343c;
+            --accent: #7db9e0; --ok: #6cc795; --bad: #ee8079; --warn: #dcae56; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.5 system-ui, sans-serif; }
+  main { max-width: 1080px; margin: 0 auto; padding: 28px 16px 48px; }
+  h1 { font-size: 20px; margin: 0; letter-spacing: -0.01em; }
+  header p { margin: 4px 0 20px; color: var(--muted); max-width: 70ch; }
+  .grid { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; }
+  @media (max-width: 760px) { .grid { grid-template-columns: minmax(0, 1fr); } }
+  section { background: var(--panel); border: 1px solid var(--line); border-radius: 8px; padding: 16px; }
+  h2 { font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin: 0 0 10px; }
+  label { display: block; font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+  input, textarea, button { font: inherit; color: inherit; }
+  input, textarea { width: 100%; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; }
+  textarea { font: 13px/1.45 var(--mono); min-height: 300px; resize: vertical; tab-size: 2; }
+  .row { display: flex; gap: 8px; align-items: center; margin-top: 12px; flex-wrap: wrap; }
+  button { border: 1px solid var(--accent); background: var(--accent); color: var(--panel); border-radius: 6px; padding: 7px 14px; cursor: pointer; }
+  button.ghost { background: transparent; color: var(--accent); }
+  button:disabled { opacity: 0.5; cursor: default; }
+  #status { font: 13px var(--mono); color: var(--muted); }
+  ol { list-style: none; margin: 0; padding: 0; }
+  li { border-top: 1px solid var(--line); padding: 8px 0; }
+  li:first-child { border-top: 0; }
+  .head { display: flex; gap: 10px; align-items: baseline; font: 13px var(--mono); }
+  .seq { color: var(--muted); min-width: 2ch; text-align: right; }
+  .kind { font-weight: 600; }
+  .succeeded, .step_succeeded { color: var(--ok); }
+  .failed, .step_failed { color: var(--bad); }
+  .cancelled { color: var(--warn); }
+  .detail { color: var(--muted); overflow-wrap: anywhere; }
+  details { margin: 6px 0 0 calc(2ch + 10px); }
+  summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+  pre { margin: 6px 0 0; font: 12px/1.45 var(--mono); white-space: pre-wrap; overflow-wrap: anywhere; max-height: 240px; overflow: auto; }
+  .empty { color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>axon console</h1>
+    <p>Submit a job, then watch its event log arrive over Server-Sent Events. Nothing here polls: the page holds one streaming response per job and resumes from the last sequence number it saw.</p>
+  </header>
+  <div class="grid">
+    <section>
+      <h2>Job</h2>
+      <label for="token">Bearer token</label>
+      <input id="token" value="dev-alice-token" autocomplete="off" spellcheck="false">
+      <label for="spec" style="margin-top:12px">Spec (JSON)</label>
+      <textarea id="spec" spellcheck="false"></textarea>
+      <div class="row">
+        <button id="run">Run job</button>
+        <button id="cancel" class="ghost" disabled>Cancel</button>
+        <span id="status"></span>
+      </div>
+    </section>
+    <section>
+      <h2>Events</h2>
+      <ol id="events"><li class="empty">No job yet.</li></ol>
+    </section>
+  </div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const example = {
+  name: "APOE4 carriers vs non-carriers: plasma p-tau217 (synthetic cohort)",
+  steps: [
+    { id: "select", tool: "cohort.query",
+      input: { biomarker: "plasma_ptau217", group_by: "apoe4_carrier" } },
+    { id: "test", tool: "stats.welch_t_test",
+      input: { a: { $ref: "select#/groups/carrier" }, b: { $ref: "select#/groups/non_carrier" } } },
+    { id: "carriers", tool: "stats.describe",
+      input: { values: { $ref: "select#/groups/carrier" } } },
+  ],
+};
+$("spec").value = JSON.stringify(example, null, 2);
+
+let jobId = null;
+const auth = () => ({ Authorization: "Bearer " + $("token").value.trim() });
+const setStatus = (text) => { $("status").textContent = text; };
+
+function describe(event) {
+  switch (event.type) {
+    case "submitted": return `${event.spec.steps.length} step(s) by ${event.owner}`;
+    case "step_started": return `${event.step} (attempt ${event.attempt})`;
+    case "step_succeeded": return `${event.step} via ${event.provenance.tool}@${event.provenance.tool_version} in ${event.provenance.duration_ms} ms`;
+    case "step_failed": return `${event.step}: ${event.error}`;
+    case "failed": return event.error;
+    case "cancelled": return `by ${event.by}`;
+    default: return "";
+  }
+}
+
+function render(event) {
+  const item = document.createElement("li");
+  const head = document.createElement("div");
+  head.className = "head";
+  for (const [cls, text] of [["seq", event.seq], ["kind " + event.type, event.type], ["detail", describe(event)]]) {
+    const span = document.createElement("span");
+    span.className = cls;
+    span.textContent = text;
+    head.append(span);
+  }
+  item.append(head);
+  if (event.type === "step_succeeded") {
+    for (const [title, value] of [["output", event.output], ["provenance", event.provenance]]) {
+      const details = document.createElement("details");
+      const summary = document.createElement("summary");
+      summary.textContent = title;
+      const pre = document.createElement("pre");
+      pre.textContent = JSON.stringify(value, null, 2);
+      details.append(summary, pre);
+      item.append(details);
+    }
+  }
+  $("events").append(item);
+}
+
+// EventSource cannot send an Authorization header, so read the SSE stream
+// with fetch and parse the frames by hand.
+async function follow(id) {
+  const response = await fetch(`/v1/jobs/${id}/events`, { headers: auth() });
+  if (!response.ok) throw new Error(`event stream: HTTP ${response.status}`);
+  const reader = response.body.pipeThrough(new TextDecoderStream()).getReader();
+  let buffer = "";
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) return;
+    buffer += value;
+    let end;
+    while ((end = buffer.indexOf("\n\n")) >= 0) {
+      const frame = buffer.slice(0, end);
+      buffer = buffer.slice(end + 2);
+      const data = frame.split("\n").filter((l) => l.startsWith("data:")).map((l) => l.slice(5).trim()).join("\n");
+      if (!data) continue; // keep-alive comment
+      const event = JSON.parse(data);
+      render(event);
+      setStatus(`job ${id.slice(0, 8)}… seq ${event.seq}`);
+    }
+  }
+}
+
+$("run").onclick = async () => {
+  let spec;
+  try { spec = JSON.parse($("spec").value); } catch (e) { return setStatus("spec is not valid JSON: " + e.message); }
+  $("events").replaceChildren();
+  $("run").disabled = true;
+  setStatus("submitting…");
+  try {
+    const response = await fetch("/v1/jobs", {
+      method: "POST",
+      headers: { ...auth(), "Content-Type": "application/json" },
+      body: JSON.stringify(spec),
+    });
+    const body = await response.json();
+    if (!response.ok) throw new Error(`${body.error.code}: ${body.error.message}`);
+    jobId = body.id;
+    $("cancel").disabled = false;
+    await follow(jobId);
+  } catch (e) {
+    setStatus(e.message);
+  } finally {
+    $("run").disabled = false;
+    $("cancel").disabled = true;
+  }
+};
+
+$("cancel").onclick = async () => {
+  if (jobId) await fetch(`/v1/jobs/${jobId}/cancel`, { method: "POST", headers: auth() });
+};
+</script>
+</body>
+</html>

@@ -1,0 +1,23 @@
+{
+  "name": "APOE4 carriers vs non-carriers: plasma p-tau217 (synthetic cohort)",
+  "steps": [
+    {
+      "id": "select",
+      "tool": "cohort.query",
+      "input": { "biomarker": "plasma_ptau217", "group_by": "apoe4_carrier" }
+    },
+    {
+      "id": "test",
+      "tool": "stats.welch_t_test",
+      "input": {
+        "a": { "$ref": "select#/groups/carrier" },
+        "b": { "$ref": "select#/groups/non_carrier" }
+      }
+    },
+    {
+      "id": "carriers",
+      "tool": "stats.describe",
+      "input": { "values": { "$ref": "select#/groups/carrier" } }
+    }
+  ]
+}
