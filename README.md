@@ -177,3 +177,7 @@ examples/            a sample job spec
 - **Counters only.** Metrics are Prometheus counters and logs are structured;
   there are no histograms or distributed traces yet.
 - Job listing is unpaginated, and `/metrics` is unauthenticated.
+
+## License
+
+[MIT](LICENSE)
